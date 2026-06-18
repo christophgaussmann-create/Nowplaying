@@ -1,13 +1,6 @@
 {
   "short_name": "HiFi App",
   "name": "Meine HiFi Rack App",
-  "icons": [
-    {
-      "src": "icon.png",
-      "type": "image/png",
-      "sizes": "192x192"
-    }
-  ],
   "start_url": "./index.html",
   "background_color": "#000000",
   "theme_color": "#000000",
