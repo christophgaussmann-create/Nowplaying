@@ -1,0 +1,668 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Now Playing</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&family=Playfair+Display:ital,wght@0,700;1,400&display=swap');
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0a0a0f;
+    --accent: #1DB954;
+    --text: #ffffff;
+    --sub: rgba(255,255,255,0.45);
+    --card: rgba(255,255,255,0.04);
+  }
+
+  html, body {
+    width: 100%; height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Inter', sans-serif;
+    overflow: hidden;
+    user-select: none;
+  }
+
+  /* ── Ambient background ── */
+  #ambient {
+    position: fixed; inset: 0;
+    background: var(--bg);
+    transition: background 2s ease;
+    z-index: 0;
+  }
+  #ambient::after {
+    content: '';
+    position: absolute; inset: 0;
+    background: radial-gradient(ellipse 80% 60% at 50% 40%, rgba(0,0,0,0) 0%, rgba(10,10,15,0.85) 100%);
+  }
+
+  /* ── Canvas visualizer ── */
+  #visualizer {
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    height: 160px;
+    z-index: 1;
+    opacity: 0.35;
+  }
+
+  /* ── Clock ── */
+  #clock {
+    position: fixed;
+    top: 36px; right: 48px;
+    font-family: 'Playfair Display', serif;
+    font-size: clamp(2rem, 5vw, 3.5rem);
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    color: var(--text);
+    z-index: 10;
+    text-shadow: 0 2px 20px rgba(0,0,0,0.6);
+  }
+  #date {
+    position: fixed;
+    top: 36px; left: 48px;
+    font-size: clamp(0.8rem, 1.5vw, 1rem);
+    font-weight: 300;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--sub);
+    z-index: 10;
+  }
+
+  /* ── Main layout ── */
+  #player {
+    position: fixed; inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: clamp(32px, 5vw, 72px);
+    padding: 80px 48px 180px;
+    z-index: 5;
+  }
+
+  /* ── Album art ── */
+  #art-wrap {
+    flex: 0 0 auto;
+    width: clamp(220px, 35vw, 420px);
+    aspect-ratio: 1;
+    position: relative;
+  }
+  #art {
+    width: 100%; height: 100%;
+    object-fit: cover;
+    border-radius: 12px;
+    box-shadow: 0 32px 80px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.06);
+    transition: opacity 0.6s ease, transform 0.6s ease;
+  }
+  #art.loading { opacity: 0; transform: scale(0.96); }
+
+  /* Vinyl spin ring */
+  #art-wrap::before {
+    content: '';
+    position: absolute;
+    inset: -3px;
+    border-radius: 14px;
+    background: conic-gradient(from 0deg, var(--accent), transparent 30%, var(--accent) 60%, transparent 90%);
+    opacity: 0;
+    transition: opacity 1s ease;
+    animation: spin 4s linear infinite;
+  }
+  #art-wrap.playing::before { opacity: 0.4; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── Track info ── */
+  #info {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  #now-label {
+    font-size: 0.7rem;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--accent);
+    font-weight: 600;
+  }
+
+  #title {
+    font-family: 'Playfair Display', serif;
+    font-size: clamp(1.8rem, 4.5vw, 4rem);
+    font-weight: 700;
+    line-height: 1.1;
+    letter-spacing: -0.02em;
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  #title.long { font-size: clamp(1.4rem, 3vw, 2.6rem); white-space: normal; }
+
+  #artist {
+    font-size: clamp(1rem, 2.2vw, 1.6rem);
+    font-weight: 300;
+    color: var(--sub);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  #album {
+    font-size: clamp(0.75rem, 1.3vw, 1rem);
+    color: rgba(255,255,255,0.25);
+    font-weight: 300;
+    font-style: italic;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* ── Progress bar ── */
+  #progress-wrap {
+    margin-top: 8px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  #progress-bar {
+    flex: 1;
+    height: 3px;
+    background: rgba(255,255,255,0.1);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  #progress-fill {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 2px;
+    width: 0%;
+    transition: width 1s linear;
+  }
+  .time-label {
+    font-size: 0.75rem;
+    color: var(--sub);
+    font-variant-numeric: tabular-nums;
+    min-width: 36px;
+  }
+
+  /* ── Auth screen ── */
+  #auth-screen {
+    position: fixed; inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 24px;
+    z-index: 100;
+    background: var(--bg);
+    padding: 48px;
+    text-align: center;
+  }
+  #auth-screen h1 {
+    font-family: 'Playfair Display', serif;
+    font-size: clamp(2rem, 5vw, 3rem);
+    margin-bottom: 8px;
+  }
+  #auth-screen p {
+    color: var(--sub);
+    max-width: 480px;
+    line-height: 1.7;
+    font-size: 0.95rem;
+  }
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 32px;
+    background: var(--accent);
+    color: #000;
+    font-weight: 600;
+    font-size: 1rem;
+    border: none;
+    border-radius: 50px;
+    cursor: pointer;
+    transition: transform 0.15s, opacity 0.15s;
+    text-decoration: none;
+  }
+  .btn:hover { transform: scale(1.03); opacity: 0.92; }
+
+  #setup-info {
+    background: var(--card);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 12px;
+    padding: 20px 24px;
+    max-width: 560px;
+    text-align: left;
+  }
+  #setup-info h3 { font-size: 0.85rem; color: var(--accent); letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 12px; }
+  #setup-info ol { padding-left: 18px; color: var(--sub); font-size: 0.88rem; line-height: 2; }
+  #setup-info a { color: var(--accent); }
+  #setup-info code {
+    background: rgba(255,255,255,0.08);
+    border-radius: 4px;
+    padding: 1px 6px;
+    font-family: monospace;
+    font-size: 0.85em;
+    color: #fff;
+  }
+
+  #client-id-wrap {
+    display: flex; gap: 12px; flex-wrap: wrap; justify-content: center;
+  }
+  #client-id-input {
+    padding: 12px 20px;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 50px;
+    color: #fff;
+    font-size: 0.95rem;
+    width: 280px;
+    outline: none;
+    font-family: monospace;
+    letter-spacing: 0.05em;
+  }
+  #client-id-input:focus { border-color: var(--accent); }
+
+  /* ── Idle / paused ── */
+  #idle-msg {
+    position: fixed; inset: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 5;
+    flex-direction: column;
+    gap: 16px;
+    color: var(--sub);
+  }
+  #idle-msg.show { display: flex; }
+  #idle-msg svg { opacity: 0.2; }
+  #idle-msg p { font-size: 1.1rem; font-weight: 300; letter-spacing: 0.05em; }
+
+  #player.hidden { display: none; }
+</style>
+</head>
+<body>
+
+<div id="ambient"></div>
+<canvas id="visualizer"></canvas>
+
+<div id="clock">00:00</div>
+<div id="date"></div>
+
+<!-- AUTH SCREEN -->
+<div id="auth-screen">
+  <div>
+    <h1>Now Playing</h1>
+    <p>Verbinde Spotify, um Album-Art, Titel und Künstler auf deinem Tablet anzuzeigen.</p>
+  </div>
+
+  <div id="setup-info">
+    <h3>Einmalige Einrichtung (2 Minuten)</h3>
+    <ol>
+      <li>Gehe zu <a href="https://developer.spotify.com/dashboard" target="_blank">developer.spotify.com/dashboard</a></li>
+      <li>Klick <strong>Create App</strong> — Name ist egal</li>
+      <li>Trage als Redirect URI genau ein:<br><code id="redirect-uri-display">wird geladen…</code></li>
+      <li>Kopiere deine <strong>Client ID</strong> und füge sie unten ein</li>
+    </ol>
+  </div>
+
+  <div id="client-id-wrap">
+    <input id="client-id-input" type="text" placeholder="Spotify Client ID einfügen…" spellcheck="false" autocomplete="off">
+    <button class="btn" onclick="startAuth()">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.419 1.56-.299.421-1.02.599-1.559.3z"/></svg>
+      Mit Spotify verbinden
+    </button>
+  </div>
+</div>
+
+<!-- PLAYER -->
+<div id="player" class="hidden">
+  <div id="art-wrap">
+    <img id="art" src="" alt="Album Art">
+  </div>
+  <div id="info">
+    <div id="now-label">▶ Jetzt läuft</div>
+    <div id="title">—</div>
+    <div id="artist">—</div>
+    <div id="album"></div>
+    <div id="progress-wrap">
+      <span class="time-label" id="time-current">0:00</span>
+      <div id="progress-bar"><div id="progress-fill"></div></div>
+      <span class="time-label" id="time-total">0:00</span>
+    </div>
+  </div>
+</div>
+
+<div id="idle-msg">
+  <svg width="64" height="64" viewBox="0 0 24 24" fill="white"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>
+  <p>Nichts läuft gerade — spiele etwas in Spotify ab</p>
+</div>
+
+<script>
+// ── Config ──────────────────────────────────────────────
+const SCOPES = 'user-read-currently-playing user-read-playback-state';
+const POLL_MS = 3000;
+
+// ── Redirect URI (dynamic) ───────────────────────────────
+const REDIRECT_URI = location.origin + location.pathname;
+document.getElementById('redirect-uri-display').textContent = REDIRECT_URI;
+
+// ── State ───────────────────────────────────────────────
+let accessToken = null;
+let tokenExpiry = 0;
+let refreshToken = null;
+let clientId = localStorage.getItem('sp_client_id') || '';
+let lastTrackId = null;
+let pollTimer = null;
+let progressTimer = null;
+let progressMs = 0;
+let durationMs = 1;
+let isPlaying = false;
+let progressStart = 0;
+
+if (clientId) document.getElementById('client-id-input').value = clientId;
+
+// ── Clock ────────────────────────────────────────────────
+const DAYS = ['Sonntag','Montag','Dienstag','Mittwoch','Donnerstag','Freitag','Samstag'];
+const MONTHS = ['Jan','Feb','Mär','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Dez'];
+
+function updateClock() {
+  const now = new Date();
+  const h = String(now.getHours()).padStart(2,'0');
+  const m = String(now.getMinutes()).padStart(2,'0');
+  document.getElementById('clock').textContent = `${h}:${m}`;
+  document.getElementById('date').textContent =
+    `${DAYS[now.getDay()]}, ${now.getDate()}. ${MONTHS[now.getMonth()]} ${now.getFullYear()}`;
+}
+updateClock();
+setInterval(updateClock, 10000);
+
+// ── PKCE Auth ────────────────────────────────────────────
+function startAuth() {
+  clientId = document.getElementById('client-id-input').value.trim();
+  if (!clientId) { alert('Bitte Client ID eingeben.'); return; }
+  localStorage.setItem('sp_client_id', clientId);
+  generatePKCE().then(({ verifier, challenge }) => {
+    sessionStorage.setItem('pkce_verifier', verifier);
+    const params = new URLSearchParams({
+      client_id: clientId, response_type: 'code',
+      redirect_uri: REDIRECT_URI, scope: SCOPES,
+      code_challenge_method: 'S256', code_challenge: challenge
+    });
+    location.href = 'https://accounts.spotify.com/authorize?' + params;
+  });
+}
+
+async function generatePKCE() {
+  const verifier = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32))))
+    .replace(/[+/=]/g, c => ({'+':'-','/':'_','=':''}[c]));
+  const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier));
+  const challenge = btoa(String.fromCharCode(...new Uint8Array(hash)))
+    .replace(/[+/=]/g, c => ({'+':'-','/':'_','=':''}[c]));
+  return { verifier, challenge };
+}
+
+async function exchangeCode(code) {
+  const verifier = sessionStorage.getItem('pkce_verifier');
+  const res = await fetch('https://accounts.spotify.com/api/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      grant_type: 'authorization_code', code,
+      redirect_uri: REDIRECT_URI,
+      client_id: clientId, code_verifier: verifier
+    })
+  });
+  const data = await res.json();
+  storeTokens(data);
+}
+
+async function refreshAccessToken() {
+  const rt = localStorage.getItem('sp_refresh');
+  if (!rt) return false;
+  const res = await fetch('https://accounts.spotify.com/api/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      grant_type: 'refresh_token', refresh_token: rt, client_id: clientId
+    })
+  });
+  const data = await res.json();
+  if (data.access_token) { storeTokens(data); return true; }
+  return false;
+}
+
+function storeTokens(data) {
+  accessToken = data.access_token;
+  tokenExpiry = Date.now() + (data.expires_in - 60) * 1000;
+  if (data.refresh_token) {
+    refreshToken = data.refresh_token;
+    localStorage.setItem('sp_refresh', refreshToken);
+  }
+  localStorage.setItem('sp_token', accessToken);
+  localStorage.setItem('sp_expiry', tokenExpiry);
+}
+
+async function ensureToken() {
+  if (accessToken && Date.now() < tokenExpiry) return true;
+  accessToken = localStorage.getItem('sp_token');
+  tokenExpiry = parseInt(localStorage.getItem('sp_expiry') || '0');
+  if (accessToken && Date.now() < tokenExpiry) return true;
+  return await refreshAccessToken();
+}
+
+// ── Startup ──────────────────────────────────────────────
+(async () => {
+  const params = new URLSearchParams(location.search);
+  const code = params.get('code');
+  if (code) {
+    history.replaceState({}, '', location.pathname);
+    await exchangeCode(code);
+    showPlayer();
+    startPolling();
+    return;
+  }
+  const hasToken = await ensureToken();
+  if (hasToken) { showPlayer(); startPolling(); }
+})();
+
+function showPlayer() {
+  document.getElementById('auth-screen').style.display = 'none';
+}
+
+// ── Polling ──────────────────────────────────────────────
+function startPolling() {
+  fetchNowPlaying();
+  pollTimer = setInterval(fetchNowPlaying, POLL_MS);
+}
+
+async function fetchNowPlaying() {
+  const ok = await ensureToken();
+  if (!ok) return;
+  try {
+    const res = await fetch('https://api.spotify.com/v1/me/player/currently-playing', {
+      headers: { Authorization: 'Bearer ' + accessToken }
+    });
+    if (res.status === 204 || res.status === 200 && res.headers.get('content-length') === '0') {
+      showIdle(); return;
+    }
+    if (!res.ok) return;
+    const data = await res.json();
+    if (!data || !data.item) { showIdle(); return; }
+    renderTrack(data);
+  } catch(e) { console.warn(e); }
+}
+
+// ── Render ───────────────────────────────────────────────
+function renderTrack(data) {
+  const track = data.item;
+  const id = track.id;
+  const playing = data.is_playing;
+
+  document.getElementById('player').classList.remove('hidden');
+  document.getElementById('idle-msg').classList.remove('show');
+
+  isPlaying = playing;
+  progressMs = data.progress_ms;
+  durationMs = track.duration_ms;
+  progressStart = Date.now();
+
+  // Progress
+  updateProgress();
+  clearInterval(progressTimer);
+  if (playing) progressTimer = setInterval(tickProgress, 1000);
+
+  // Art wrap state
+  const artWrap = document.getElementById('art-wrap');
+  artWrap.classList.toggle('playing', playing);
+
+  if (id !== lastTrackId) {
+    lastTrackId = id;
+
+    // Title
+    const titleEl = document.getElementById('title');
+    titleEl.textContent = track.name;
+    titleEl.classList.toggle('long', track.name.length > 30);
+
+    // Artist & album
+    document.getElementById('artist').textContent = track.artists.map(a => a.name).join(', ');
+    document.getElementById('album').textContent = track.album.name;
+
+    // Art
+    const img = document.getElementById('art');
+    img.classList.add('loading');
+    const imgUrl = track.album.images[0]?.url;
+    if (imgUrl) {
+      const tmp = new Image();
+      tmp.onload = () => {
+        img.src = imgUrl;
+        img.classList.remove('loading');
+        extractColor(tmp);
+      };
+      tmp.src = imgUrl;
+    }
+  }
+}
+
+function showIdle() {
+  document.getElementById('player').classList.add('hidden');
+  document.getElementById('idle-msg').classList.add('show');
+  document.getElementById('ambient').style.background = '#0a0a0f';
+  clearInterval(progressTimer);
+}
+
+// ── Progress ─────────────────────────────────────────────
+function tickProgress() {
+  if (!isPlaying) return;
+  progressMs = data_progressMs + (Date.now() - progressStart);
+  updateProgress();
+}
+
+let data_progressMs = 0;
+function updateProgress() {
+  data_progressMs = progressMs;
+  const pct = Math.min(100, (progressMs / durationMs) * 100);
+  document.getElementById('progress-fill').style.width = pct + '%';
+  document.getElementById('time-current').textContent = fmtTime(progressMs);
+  document.getElementById('time-total').textContent = fmtTime(durationMs);
+}
+
+// Real-time progress tick
+setInterval(() => {
+  if (!isPlaying) return;
+  const elapsed = Date.now() - progressStart;
+  const current = Math.min(durationMs, data_progressMs + elapsed);
+  const pct = (current / durationMs) * 100;
+  document.getElementById('progress-fill').style.width = pct + '%';
+  document.getElementById('time-current').textContent = fmtTime(current);
+}, 500);
+
+function fmtTime(ms) {
+  const s = Math.floor(ms / 1000);
+  return `${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`;
+}
+
+// ── Color extraction ─────────────────────────────────────
+function extractColor(img) {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 50;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(img, 0, 0, 50, 50);
+  const d = ctx.getImageData(0, 0, 50, 50).data;
+  let r=0,g=0,b=0,n=0;
+  for (let i=0;i<d.length;i+=16) {
+    // skip near-black and near-white
+    const br = (d[i]+d[i+1]+d[i+2])/3;
+    if (br < 20 || br > 220) continue;
+    r+=d[i]; g+=d[i+1]; b+=d[i+2]; n++;
+  }
+  if (!n) return;
+  r=Math.round(r/n); g=Math.round(g/n); b=Math.round(b/n);
+  // darken for bg
+  const dr = Math.round(r*0.18), dg = Math.round(g*0.18), db = Math.round(b*0.18);
+  document.getElementById('ambient').style.background =
+    `radial-gradient(ellipse 120% 80% at 30% 30%, rgb(${r},${g},${b}) 0%, rgb(${dr},${dg},${db}) 100%)`;
+}
+
+// ── Visualizer ───────────────────────────────────────────
+const canvas = document.getElementById('visualizer');
+const ctx2 = canvas.getContext('2d');
+let bars = Array.from({length: 48}, () => ({ h: Math.random()*40+10, v: 0 }));
+
+function resizeCanvas() {
+  canvas.width = window.innerWidth;
+  canvas.height = 160;
+}
+resizeCanvas();
+window.addEventListener('resize', resizeCanvas);
+
+function animateBars() {
+  const W = canvas.width, H = canvas.height;
+  ctx2.clearRect(0,0,W,H);
+  const bw = W / bars.length;
+
+  bars.forEach((b, i) => {
+    // Organic movement
+    if (isPlaying) {
+      b.v += (Math.random() - 0.48) * 8;
+      b.v *= 0.82;
+      b.h = Math.max(8, Math.min(120, b.h + b.v));
+    } else {
+      b.h += (10 - b.h) * 0.05;
+    }
+
+    const x = i * bw + bw*0.15;
+    const w = bw * 0.7;
+    const h = b.h;
+    const y = H - h;
+
+    const grad = ctx2.createLinearGradient(0, y, 0, H);
+    grad.addColorStop(0, 'rgba(29,185,84,0.9)');
+    grad.addColorStop(1, 'rgba(29,185,84,0.1)');
+    ctx2.fillStyle = grad;
+    ctx2.beginPath();
+    ctx2.roundRect(x, y, w, h, [3,3,0,0]);
+    ctx2.fill();
+  });
+
+  requestAnimationFrame(animateBars);
+}
+animateBars();
+
+// ── Keep screen on (Android) ─────────────────────────────
+if ('wakeLock' in navigator) {
+  const requestWakeLock = async () => {
+    try { await navigator.wakeLock.request('screen'); } catch(e) {}
+  };
+  requestWakeLock();
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) requestWakeLock();
+  });
+}
+</script>
+</body>
+</html>
