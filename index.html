@@ -664,6 +664,13 @@ if ('wakeLock' in navigator) {
     if (!document.hidden) requestWakeLock();
   });
 }
+<script>
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('./sw.js')
+      .then(() => console.log("Service Worker registriert!"))
+      .catch(err => console.log("Fehler:", err));
+  }
+</script>
 </script>
 </body>
 </html>
