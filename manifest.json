@@ -4,7 +4,7 @@
   "scope": "./",
   "name": "Meine HiFi Rack App",
   "short_name": "HiFi App",
-  "display": "standalone",
+  "display": "fullscreen",
   "orientation": "landscape",
   "background_color": "#000000",
   "theme_color": "#000000",
